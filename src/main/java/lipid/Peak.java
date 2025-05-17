@@ -35,4 +35,8 @@ public class Peak {
         Peak other = (Peak) obj;
         return Double.compare(mz, other.mz) == 0;
     }
+
+    public int compareTo (Peak other) {
+        return Double.compare(this.mz, other.mz);
+    }
 }
