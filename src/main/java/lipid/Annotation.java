@@ -1,9 +1,10 @@
 package lipid;
 
-import java.util.Collections;
-import java.util.Objects;
-import java.util.Set;
-import java.util.TreeSet;
+import adduct.Adduct;
+import adduct.AdductList;
+import adduct.MassTransformation;
+
+import java.util.*;
 
 /**
  * Class to represent the annotation over a lipid
@@ -47,9 +48,11 @@ public class Annotation {
         this.intensity = intensity;
         this.ionizationMode = ionizationMode;
         // !!TODO This set should be sorted according to help the program to deisotope the signals plus detect the adduct
-        this.groupedSignals = new TreeSet<>(groupedSignals);
+        this.groupedSignals = new TreeSet<>(Comparator.comparingDouble(Peak::getMz));
+        this.groupedSignals.addAll(groupedSignals); // add all the signals if not is empty
         this.score = 0;
         this.totalScoresApplied = 0;
+        this.adduct = detectAdduct();
     }
 
     public Lipid getLipid() {
@@ -128,5 +131,59 @@ public class Annotation {
                 lipid.getName(), mz, rtMin, adduct, intensity, score);
     }
 
-    // !!TODO Detect the adduct with an algorithm or with drools, up to the user.
+    public String detectAdduct() {
+        double mzTolerance = 0.1;
+        if (groupedSignals == null || groupedSignals.size() < 2) {
+            System.out.println("detectAdduct: Not enough signals (" +
+                    (groupedSignals == null ? 0 : groupedSignals.size()) + ")");
+            return null;
+        }
+
+        Map<String, Double> adductMap = (getIonizationMode() == IoniationMode.POSITIVE)
+                ? AdductList.MAPMZPOSITIVEADDUCTS
+                : AdductList.MAPMZNEGATIVEADDUCTS;
+
+        double observedMz = this.getMz();
+        System.out.println("detectAdduct: observedMz = " + observedMz + ", mode = " + getIonizationMode());
+
+        // for each adduct that could detect observedMz:
+        for (String candidateAdduct : adductMap.keySet()) {
+            System.out.println("  Probando candidateAdduct: " + candidateAdduct);
+            try {
+                // monoisotopic mass per adducto for observedMz
+                double monoisotopicMass = MassTransformation.getMonoisotopicMassFromMZ(observedMz, candidateAdduct);
+                System.out.println("    monoisotopicMass = " + monoisotopicMass);
+
+                for (Peak otherPeak : groupedSignals) {
+                    System.out.println("    Comparando con otherPeak: " + otherPeak);
+                    if (Math.abs(otherPeak.getMz() - observedMz) <= mzTolerance) {
+                        // Same peak so skip
+                        System.out.println("      Skip: same as observedMz");
+                        continue;
+                    }
+
+                    for (String secondAdduct : adductMap.keySet()) {
+                        double expectedMz = MassTransformation
+                                .getMZFromMonoisotopicMass(monoisotopicMass, secondAdduct);
+                        double diff = Math.abs(expectedMz - otherPeak.getMz());
+                        System.out.println("      secondAdduct=" + secondAdduct + ", expectedMz=" + expectedMz + ", observed=" + otherPeak.getMz() + ", diff=" + diff);
+                        if (diff <= mzTolerance) {
+                            System.out.println("    DETECTED adduct: " + candidateAdduct + " (via " + secondAdduct + ")");
+                            return candidateAdduct;
+                        }
+                    }
+                }
+
+            } catch (IllegalArgumentException e) {
+
+                System.out.println(" redundant candidate Adduct : " + candidateAdduct);
+            }
+        }
+
+        System.out.println("detectAdduct: no adducts are accepted");
+        return null;
+
+    }
+
+    // !!TODO Detect the adduct with an algorithm or with drools, up to the  user.
 }
